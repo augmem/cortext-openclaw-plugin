@@ -1,6 +1,6 @@
 {
   "name": "@augmem/cortext-openclaw-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cortext memory for OpenClaw: a per-conversation-isolated context engine plus an interrupt gate over streaming reasoning.",
   "license": "Apache-2.0",
   "type": "module",

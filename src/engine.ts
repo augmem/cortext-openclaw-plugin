@@ -52,7 +52,7 @@ export class CortextContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "cortext",
     name: "Cortext Memory",
-    version: "0.1.0",
+    version: "0.1.1",
     ownsCompaction: false,
   };
 

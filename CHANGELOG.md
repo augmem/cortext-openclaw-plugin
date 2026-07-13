@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-13
+
+### Changed
+
+- Removed the per-message `flush()` after durable ingest. Durable `processText`
+  commits on its own — the write is immediately visible to recall, even from a
+  fresh handle on the same database (verified empirically against
+  `@augmem/cortext` 1.2.0; the earlier "flush required for recall visibility"
+  note was wrong). `flush()` remains at deliberate checkpoints: `compact()`,
+  LRU eviction, and `dispose()`.
+
 ## [0.1.0] - 2026-07-13
 
 Initial release. Cortext memory for OpenClaw.

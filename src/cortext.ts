@@ -26,9 +26,11 @@ export class CortextEngine {
     const trimmed = text.trim();
     if (!trimmed) return null;
     try {
-      const ctx = this.engine.processText(trimmed, sourceId, { retention: "durable" });
-      this.engine.flush(); // commit so subsequent recalls see it (no cross-turn cache)
-      return ctx;
+      // Durable processText commits on its own: the write is immediately
+      // visible to recall, even from a fresh handle on the same DB (verified
+      // empirically against @augmem/cortext 1.2.0). No per-message flush;
+      // flush() remains only at deliberate checkpoints (compact/evict/dispose).
+      return this.engine.processText(trimmed, sourceId, { retention: "durable" });
     } catch {
       return null;
     }
