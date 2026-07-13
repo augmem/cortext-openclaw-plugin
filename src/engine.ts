@@ -12,15 +12,36 @@ import type {
 import { CortextStore, formatMemories, memoryBlock, safe } from "./cortext.js";
 import type { InterruptBus } from "./store.js";
 
+// Bound serialized tool-call arguments so a huge payload (a file write, a long
+// patch) doesn't dominate the store; the result text is ingested separately.
+const TOOL_ARGS_MAX_CHARS = 2000;
+
+/** Render a transcript content part as text. Tool calls (OpenClaw stores them
+ *  as `{type:"toolCall", name, arguments}` content parts with no `text` field)
+ *  are rendered as "[tool call] name {args}" so the durable record keeps WHAT
+ *  the agent did, not just what came back. Parts with no textual form (images,
+ *  binary payloads) yield "". */
+function partText(part: unknown): string {
+  if (typeof part === "string") return part;
+  if (!part || typeof part !== "object") return "";
+  const p = part as { type?: unknown; text?: unknown; name?: unknown; arguments?: unknown };
+  if (typeof p.text === "string") return p.text;
+  if (p.type === "toolCall" && typeof p.name === "string") {
+    let args = "";
+    try { args = p.arguments === undefined ? "" : JSON.stringify(p.arguments); } catch { /* unserializable */ }
+    if (args.length > TOOL_ARGS_MAX_CHARS) args = args.slice(0, TOOL_ARGS_MAX_CHARS) + "…";
+    return `[tool call] ${p.name}${args ? " " + args : ""}`;
+  }
+  return "";
+}
+
 function messageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
     for (const part of content) {
-      if (typeof part === "string") parts.push(part);
-      else if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
-        parts.push((part as { text: string }).text);
-      }
+      const text = partText(part);
+      if (text) parts.push(text);
     }
     return parts.join(" ");
   }
@@ -52,7 +73,7 @@ export class CortextContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "cortext",
     name: "Cortext Memory",
-    version: "0.1.1",
+    version: "0.1.2",
     ownsCompaction: false,
   };
 

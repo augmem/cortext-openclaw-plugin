@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-13
+
+### Added
+
+- **Tool calls are now ingested.** OpenClaw stores a tool call as a
+  `{type: "toolCall", name, arguments}` content part with no `text` field, so
+  it previously extracted to empty and was skipped — the durable record kept
+  what a tool *returned* but not what the agent *did*. Calls are now rendered
+  as `[tool call] <name> <args>` (arguments bounded at 2k chars) and stored
+  durably alongside their results. Verified live: the call text appears in the
+  session store after a real `exec` turn.
+
 ## [0.1.1] - 2026-07-13
 
 ### Changed

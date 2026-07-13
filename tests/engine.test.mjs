@@ -98,6 +98,46 @@ test("empty store yields passthrough with an estimatedTokens number", async () =
   } finally { cleanup(); }
 });
 
+test("tool calls are ingested (real OpenClaw toolCall content-part shape)", async () => {
+  const { dir, cleanup } = tempDir();
+  try {
+    const eng = build(dir).contextEngine;
+    const sk = "agent:main:S";
+    // Shape captured from a live OpenClaw transcript: the call is a content
+    // part with type "toolCall" and NO text field.
+    const ingested = await eng.ingest({
+      sessionId: "S", sessionKey: sk,
+      message: {
+        role: "assistant",
+        content: [{
+          type: "toolCall",
+          id: "call_x|fc_y",
+          name: "exec",
+          arguments: { command: "tar -czf backup-vermilion.tgz /srv/data", timeout: 10 },
+        }],
+      },
+    });
+    assert.equal(ingested.ingested, true, "a toolCall-only message must be ingested");
+    const out = await eng.assemble({ sessionId: "S", sessionKey: sk, messages: [], prompt: "What command created the backup archive?" });
+    assert.match(out.systemPromptAddition ?? "", /backup-vermilion|tar -czf/, "the call's command is recallable");
+  } finally { cleanup(); }
+});
+
+test("tool results are ingested (text content part)", async () => {
+  const { dir, cleanup } = tempDir();
+  try {
+    const eng = build(dir).contextEngine;
+    const sk = "agent:main:S";
+    const ingested = await eng.ingest({
+      sessionId: "S", sessionKey: sk,
+      message: { role: "toolResult", content: [{ type: "text", text: "backup written: 4183 files, checksum qz88x" }] },
+    });
+    assert.equal(ingested.ingested, true);
+    const out = await eng.assemble({ sessionId: "S", sessionKey: sk, messages: [], prompt: "What was the backup checksum?" });
+    assert.match(out.systemPromptAddition ?? "", /qz88x/, "the result text is recallable");
+  } finally { cleanup(); }
+});
+
 test("compact reports ok without owning transcript compaction", async () => {
   const { dir, cleanup } = tempDir();
   try {
