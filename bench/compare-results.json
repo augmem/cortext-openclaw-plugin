@@ -1,0 +1,195 @@
+{
+  "runId": "1783906990911",
+  "model": "openai/gpt-5.4-mini",
+  "report": [
+    {
+      "arm": "cortext",
+      "context": "cortext",
+      "memory": "none",
+      "note": "this plugin (context engine), local",
+      "recall": 6,
+      "total": 6,
+      "leaks": 0,
+      "results": [
+        {
+          "id": "pipeline",
+          "recalled": true,
+          "stale": false,
+          "answer": "Your deploy pipeline is **Bluefin**, and it runs **every 30 days**."
+        },
+        {
+          "id": "datacenter",
+          "recalled": true,
+          "stale": false,
+          "answer": "Reykjavik."
+        },
+        {
+          "id": "oncall",
+          "recalled": true,
+          "stale": false,
+          "answer": "Priya."
+        },
+        {
+          "id": "db-version",
+          "recalled": true,
+          "stale": false,
+          "answer": "Postgres version 16."
+        },
+        {
+          "id": "rate-limit",
+          "recalled": true,
+          "stale": false,
+          "answer": "4200 requests per minute."
+        },
+        {
+          "id": "supersession",
+          "recalled": true,
+          "stale": false,
+          "answer": "Thursday, July 17, 2026."
+        }
+      ]
+    },
+    {
+      "arm": "control",
+      "context": "legacy",
+      "memory": "none",
+      "note": "built-in engine, no memory plugin",
+      "recall": 0,
+      "total": 6,
+      "leaks": 0,
+      "results": [
+        {
+          "id": "pipeline",
+          "recalled": false,
+          "stale": false,
+          "answer": "I can’t verify a **deploy pipeline** name or cadence from the info I have. I found the CI docs, but not a specifically named deploy pipeline. If you want, I can look through your repo/config for the exact pipeline definition."
+        },
+        {
+          "id": "datacenter",
+          "recalled": false,
+          "stale": false,
+          "answer": "Your primary datacenter is the **configured remote gateway target**, and if that’s unavailable, the **local loopback** fallback is treated as the winner. The docs don’t expose a physical datacenter city/country from this info alone. ([docs.openclaw.ai](https://docs.openclaw.ai/cli/gateway?utm_source=openai))\n\nIf you want, I can check the live gateway status and tell you the exact active target right now."
+        },
+        {
+          "id": "oncall",
+          "recalled": false,
+          "stale": false,
+          "answer": "I don’t have enough context to know what “our” on-call rotation refers to. If you mean the OpenClaw project/team, I couldn’t find a source for the current quarter’s rotation lead. If you want, I can look in your workspace docs or calendar notes next."
+        },
+        {
+          "id": "db-version",
+          "recalled": false,
+          "stale": false,
+          "answer": "I don’t know yet—I’d need to inspect the staging DB directly. If you want, I can check it now."
+        },
+        {
+          "id": "rate-limit",
+          "recalled": false,
+          "stale": false,
+          "answer": "I can’t see your OpenAI API account limits from here.\n\nWhat I *can* see: this session is using the `OPENAI_API_KEY` env key, but not the actual quota/rate-limit values. For the exact limit, check your OpenAI dashboard / usage & limits page for your project/org."
+        },
+        {
+          "id": "supersession",
+          "recalled": false,
+          "stale": false,
+          "answer": "I don’t have your calendar or dentist appointment details here.\n\nIf you want, I can help you find it quickly—paste the calendar entry or let me check your calendar."
+        }
+      ]
+    },
+    {
+      "arm": "memory-core",
+      "context": "legacy",
+      "memory": "memory-core",
+      "note": "OpenClaw built-in memory plugin, local",
+      "recall": 5,
+      "total": 6,
+      "leaks": 0,
+      "results": [
+        {
+          "id": "pipeline",
+          "recalled": true,
+          "stale": false,
+          "answer": "Bluefin. It runs every 30 days."
+        },
+        {
+          "id": "datacenter",
+          "recalled": true,
+          "stale": false,
+          "answer": "Reykjavik, Iceland."
+        },
+        {
+          "id": "oncall",
+          "recalled": true,
+          "stale": false,
+          "answer": "Priya."
+        },
+        {
+          "id": "db-version",
+          "recalled": true,
+          "stale": false,
+          "answer": "Postgres 16."
+        },
+        {
+          "id": "rate-limit",
+          "recalled": true,
+          "stale": false,
+          "answer": "4,200 requests per minute."
+        },
+        {
+          "id": "supersession",
+          "recalled": false,
+          "stale": false,
+          "answer": "I can’t see your calendar from here, so I can’t verify the dentist appointment time. If you want, I can help you find it in your email/calendar or you can paste the invite details here."
+        }
+      ]
+    },
+    {
+      "arm": "mem0",
+      "context": "legacy",
+      "memory": "openclaw-mem0",
+      "note": "mem0 cloud memory plugin (data leaves machine)",
+      "recall": 6,
+      "total": 6,
+      "leaks": 0,
+      "results": [
+        {
+          "id": "pipeline",
+          "recalled": true,
+          "stale": false,
+          "answer": "Bluefin — it runs every 30 days."
+        },
+        {
+          "id": "datacenter",
+          "recalled": true,
+          "stale": false,
+          "answer": "Reykjavik."
+        },
+        {
+          "id": "oncall",
+          "recalled": true,
+          "stale": false,
+          "answer": "Priya."
+        },
+        {
+          "id": "db-version",
+          "recalled": true,
+          "stale": false,
+          "answer": "Postgres 16."
+        },
+        {
+          "id": "rate-limit",
+          "recalled": true,
+          "stale": false,
+          "answer": "4200 requests per minute."
+        },
+        {
+          "id": "supersession",
+          "recalled": true,
+          "stale": false,
+          "answer": "Thursday, July 17, 2026."
+        }
+      ]
+    }
+  ],
+  "rescored": true
+}

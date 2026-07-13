@@ -1,0 +1,62 @@
+{
+  "name": "@augmem/cortext-openclaw-plugin",
+  "version": "0.1.0",
+  "description": "Cortext memory for OpenClaw: a per-conversation-isolated context engine plus an interrupt gate over streaming reasoning.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/augmem/cortext-openclaw-plugin.git"
+  },
+  "homepage": "https://github.com/augmem/cortext-openclaw-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/augmem/cortext-openclaw-plugin/issues"
+  },
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  },
+  "files": [
+    "dist/**/*",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:integration": "npm run build && node bench/integration.mjs",
+    "test:integration:gateway": "npm run build && node bench/integration-gateway.mjs",
+    "test:unit": "npm run build && node --test tests/store.test.mjs tests/cortext.test.mjs tests/config.test.mjs",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@augmem/cortext": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "memory",
+    "context-engine",
+    "cortext"
+  ]
+}

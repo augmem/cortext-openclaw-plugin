@@ -1,0 +1,157 @@
+# Cortext for OpenClaw
+
+Durable local memory for [OpenClaw](https://openclaw.ai), built on the native
+[`@augmem/cortext`](https://github.com/augmem/cortext) engine. It plugs into two
+OpenClaw surfaces (verified against the installed `openclaw` package's types, not
+docs):
+
+1. **Context engine** (`api.registerContextEngine`) — Cortext owns the exclusive
+   `plugins.slots.contextEngine` slot. It writes each message to memory on
+   `ingest`, and prepends recalled long-term memory to the system prompt on
+   `assemble`. Memory is **isolated per conversation** by default (see
+   [Isolation](#isolation)).
+2. **Streaming gate** (`api.agent.events.registerAgentEventSubscription`) —
+   subscribes to the agent event stream and feeds `thinking` (reasoning) and
+   `assistant` deltas through Cortext's interrupt gate as they stream. When
+   Cortext reports `should_interrupt` / `at_boundary`, the recalled memory is
+   staged (keyed by the session's scope) for the next assembly, and — via
+   `api.on("before_agent_finalize")` — a **revise of the current answer** is
+   requested (see the limits note below).
+
+## Isolation
+
+Cortext keeps one SQLite store **per isolation scope** — source ids are metadata
+within a store, so distinct scopes are distinct databases (staged gate memory is
+keyed by the same scope, so it can't cross the boundary either). `memoryScope`:
+
+- **`session`** (default) — one store per conversation. Safe when an agent serves
+  multiple people (a shared channel bot): memory never crosses conversations.
+  Verified live: a fresh session cannot recall a prior session's fact.
+- **`agent`** — one store per agent identity; memory persists across that agent's
+  sessions. Use only for **single-user** agents — it shares memory across every
+  conversation the agent handles. Verified live: agent `bob` cannot see agent
+  `main`'s memory (isolation is across agents, not sessions).
+- **`global`** — a single shared store.
+
+Session keys always fold into the scope key (sessionId alone is not unique across
+agents), and an absent/non-canonical agent normalizes to `main` like OpenClaw.
+
+## Requirements
+
+- Node.js ≥ 18.
+- `@augmem/cortext` with a native prebuild for your platform — installed as a
+  dependency. **On first use Cortext downloads its local model assets once**
+  (one network fetch); after that, memory runs fully offline with no per-turn
+  network and no LLM calls.
+- OpenClaw with the context-engine slot (`plugins.slots.contextEngine`).
+
+## Install
+
+```bash
+openclaw plugins install @augmem/cortext-openclaw-plugin
+```
+
+```jsonc
+// openclaw.json
+{
+  "plugins": {
+    "slots": { "contextEngine": "cortext" },
+    "entries": {
+      "cortext": {
+        "config": { "memoryScope": "session", "focus": 0.45 },
+        // Only needed for the interrupt re-pass (forceRepass). OpenClaw blocks
+        // the before_agent_finalize hook for non-bundled plugins without it.
+        "hooks": { "allowConversationAccess": true }
+      }
+    }
+  }
+}
+```
+
+If no engine is selected, OpenClaw runs its built-in `legacy` engine and this
+plugin is not used.
+
+## Configuration
+
+Under `plugins.entries.cortext.config`:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `dbPath` | `cortext` | Directory (under the agent dir) for Cortext stores |
+| `memoryScope` | `session` | Isolation boundary: `session` / `agent` / `global` |
+| `focus` | `0.45` | F knob: retrieval breadth vs precision |
+| `sensitivity` | `0.5` | S knob: affective relaxation of the gate |
+| `stability` | `0.5` | T knob: gate refractory + boundary pacing |
+| `recallLimit` | `12` | max memories injected per assembly |
+| `interruptGate` | `true` | run the streaming gate |
+| `ingestReasoning` | `true` | feed `thinking` deltas, not just answer text |
+| `forceRepass` | `true` | request a revise on interrupt (see limits — may be a no-op) |
+| `autoConsolidate` | `true` | consolidate on compaction |
+
+## Design and limits
+
+- **Recalled memory is untrusted input.** A prior turn could have ingested a
+  prompt-injection payload. Before injection, recalled text is stripped of
+  data-fence breakouts and fake system markers, and wrapped in a block that
+  explicitly labels it as reference data, not instructions. This is a mitigation,
+  not a guarantee.
+- **No cross-turn recall cache.** Recall queries Cortext live every assembly, so
+  a correction ingested this turn is reflected immediately (an earlier caching
+  bug returned stale facts).
+- **Compaction.** Cortext memory persists out-of-band, so the engine reports
+  `ownsCompaction: false` and delegates transcript compaction to the host; on
+  `compact` it consolidates its own graph.
+- **The gate cannot splice into a live decode**, but it requests a re-pass.
+  The agent event stream is one-way (observe only). On `should_interrupt` the
+  plugin (a) stages the recalled memory for the next assembly and (b) via
+  `api.on("before_agent_finalize")` returns `{ action: "revise" }` so the harness
+  reconsiders the *current* answer. Requires
+  `plugins.entries.cortext.hooks.allowConversationAccess: true` (OpenClaw blocks
+  the hook otherwise). **Verified against a running gateway** (`openclaw gateway
+  run` + a routed turn, `bench/integration-gateway.mjs`): the automated test
+  asserts the hook fires; a returned `revise` triggering a second model pass was
+  additionally verified in a live manual gateway session (the interrupt that
+  requests a revise is not deterministic per turn). It does **not** fire in the
+  `openclaw agent --local` embedded runner — only the full gateway path. It is a
+  no-op when it doesn't apply; disable with `forceRepass: false`.
+
+## Validated live
+
+Run in a real OpenClaw gateway (`openclaw agent --local`, `gpt-5.4-mini`) — see
+[`bench/integration.mjs`](bench/integration.mjs), a scripted integration test
+against the actual `openclaw` binary:
+
+- The plugin loads and the gate registers with **no error** (an earlier build
+  called a non-existent `api.runtime.events.onAgentEvent` and crashed).
+- **Default session scope isolates conversations**: a fresh session answers "I
+  don't know" for a fact stored in another session; the same session recalls it.
+- **Cross-agent isolation**: agent `bob` cannot see agent `main`'s memory, while
+  `main` itself still recalls the fact (positive control in the same run; the
+  needle is a nonsense token the model cannot guess from priors).
+- **No stale recall** — after correcting a fact, a fresh query returns the new
+  value.
+
+```bash
+cd bench && OPENAI_API_KEY=sk-... node integration.mjs   # real gateway, ~6 turns
+```
+
+See [bench/](bench/) for cold-start recall and LongMemEval comparison harnesses.
+
+## Develop
+
+```bash
+npm install
+npm run build       # tsc → dist/
+npm run typecheck
+npm test            # build + unit tests (native engine; fast, offline)
+```
+
+`npm test` uses a test double that mirrors the **real** injected api surface, so
+an unsupported call fails tests. For end-to-end coverage against the actual
+gateway (the thing a double can't prove), run `bench/integration.mjs`.
+`src/openclaw.d.ts` is transcribed from the **installed** `openclaw` package's
+types.
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE) and [NOTICE](./NOTICE).

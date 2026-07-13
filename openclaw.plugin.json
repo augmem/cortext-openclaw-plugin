@@ -1,0 +1,77 @@
+{
+  "id": "cortext",
+  "name": "Cortext Memory",
+  "version": "0.1.0",
+  "description": "Durable local memory for OpenClaw. Per-conversation-isolated context engine with an interrupt gate over streaming reasoning.",
+  "kind": "context-engine",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string",
+        "description": "Directory name for Cortext SQLite stores, under the agent directory.",
+        "default": "cortext"
+      },
+      "memoryScope": {
+        "type": "string",
+        "enum": ["agent", "session", "global"],
+        "description": "Isolation boundary. 'session' (default): one store per conversation — safe when an agent serves multiple users. 'agent': persists across an agent's sessions (single-user agents only). 'global': one shared store.",
+        "default": "session"
+      },
+      "focus": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Cortext focus knob (F): retrieval breadth vs precision.",
+        "default": 0.45
+      },
+      "sensitivity": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Cortext sensitivity knob (S): affective relaxation of the interrupt gate.",
+        "default": 0.5
+      },
+      "stability": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Cortext stability knob (T): interrupt refractory period and boundary pacing.",
+        "default": 0.5
+      },
+      "recallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 64,
+        "description": "Maximum recalled memories injected per assembly.",
+        "default": 12
+      },
+      "interruptGate": {
+        "type": "boolean",
+        "description": "Run the live interrupt gate over streaming assistant/reasoning deltas.",
+        "default": true
+      },
+      "ingestReasoning": {
+        "type": "boolean",
+        "description": "Feed reasoning (thinking) deltas, not just visible answer text, into the gate.",
+        "default": true
+      },
+      "forceRepass": {
+        "type": "boolean",
+        "description": "On should_interrupt, request a revise via before_agent_finalize so the model reconsiders the current answer with recalled memory (one extra pass per trigger).",
+        "default": true
+      },
+      "autoConsolidate": {
+        "type": "boolean",
+        "description": "Consolidate memory on compaction.",
+        "default": true
+      }
+    }
+  },
+  "uiHints": {
+    "focus": { "control": "slider" },
+    "sensitivity": { "control": "slider" },
+    "stability": { "control": "slider" }
+  }
+}

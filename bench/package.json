@@ -1,0 +1,15 @@
+{
+  "name": "cortext-openclaw-bench",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "fetch": "node fetch-longmemeval.mjs oracle",
+    "compare": "node run-compare.mjs",
+    "longmemeval": "node longmemeval.mjs"
+  },
+  "dependencies": {
+    "@augmem/cortext": "^1.2.0",
+    "openclaw": "^2026.6.11"
+  }
+}
