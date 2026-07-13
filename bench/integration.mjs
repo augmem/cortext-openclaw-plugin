@@ -71,15 +71,17 @@ oc(["config", "set", "plugins.entries.cortext.config.memoryScope", "agent"]); //
 // The needle must be unguessable from priors (an earlier needle, "the mascot is
 // a lobster", collided with OpenClaw's real lobster mascot — the model said
 // "lobster" from its own knowledge and the check flagged a leak that wasn't).
-turn(["--session-id", "AL1", "-m", "Please remember: the vault passphrase label is zephyr-9931."]);
-const bob = turn(["--agent", "bob", "--session-id", "BO1", "-m", "What is the vault passphrase label? Say you don't know if unsure."]);
+// It must also be NEUTRAL: secret-flavored framings ("vault passphrase") can
+// draw a model refusal / empty reply and flake the control check.
+turn(["--session-id", "AL1", "-m", "Please remember: the warehouse shelf label is zephyr-9931."]);
+const bob = turn(["--agent", "bob", "--session-id", "BO1", "-m", "What is the warehouse shelf label? Say you don't know if unsure."]);
 check(
   "P0-2: a different agent cannot see the first agent's memory",
-  bob !== "(no-reply)" && !/zephyr[\s-]?9931/i.test(bob), // a failed turn must not pass vacuously
-  bob.slice(0, 60),
+  bob !== "(no-reply)" && bob !== "" && !/zephyr[\s-]?9931/i.test(bob), // a failed turn must not pass vacuously
+  JSON.stringify(bob.slice(0, 60)),
 );
-const main = turn(["--session-id", "AL2", "-m", "What is the vault passphrase label?"]);
-check("P0-2 control: the first agent itself recalls the fact (agent scope)", /zephyr[\s-]?9931/i.test(main), main.slice(0, 60));
+const main = turn(["--session-id", "AL2", "-m", "What is the warehouse shelf label?"]);
+check("P0-2 control: the first agent itself recalls the fact (agent scope)", /zephyr[\s-]?9931/i.test(main), JSON.stringify(main.slice(0, 60)));
 
 console.log(`\n${fails.length ? "FAILED: " + fails.join("; ") : "ALL INTEGRATION CHECKS PASSED"}`);
 process.exit(fails.length ? 1 : 0);

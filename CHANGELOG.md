@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-13
+
+### Added
+
+- **Cortext owns compaction — no summarizer LLM call.** `ownsCompaction: true`:
+  on `compact` the engine picks an exchange-aligned cut in the transcript view
+  and anchors it; every `assemble` drops the archived prefix from the model
+  context and bridges it with recalled memory. The on-disk transcript is never
+  mutated; archived content remains recallable per turn. Two modes
+  (`compactionMode`): `hybrid` (default — system prompt + long-term recall + a
+  verbatim `protectTail` tail walked back to a user-message boundary) and
+  `full` (system prompt + long-term recall + the live working-memory snapshot;
+  verbatim window shrinks to the current exchange).
+- Cold-start support: preflight compaction on a fresh gateway process (before
+  any assemble) reads the transcript file directly to pick its cut.
+- The cut anchor is content-based and persisted (`compaction.json` sidecar):
+  it survives gateway restarts, and self-heals by clearing if the host rotates
+  or rewrites the transcript — the window never over-drops.
+
+### Verified
+
+- Live gateway with budget pressure: compaction archived 16 messages with no
+  LLM call (~453 → ~107 estimated tokens), the following turn succeeded with
+  the windowed context, and a fact present *only* behind the window (never
+  restated in the kept tail) was answered correctly from memory injection.
+
 ## [0.1.2] - 2026-07-13
 
 ### Added

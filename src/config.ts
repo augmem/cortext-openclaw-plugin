@@ -1,5 +1,13 @@
 export type MemoryScope = "agent" | "session" | "global";
 
+/** How Cortext compacts the model-visible window (`ownsCompaction`):
+ *  - "hybrid": keep system prompt + recalled long-term memory + a verbatim
+ *    tail of recent messages (exchange-aligned). Safe default.
+ *  - "full": keep system prompt + Cortext memory only (long-term recall plus
+ *    the live working-memory snapshot); the verbatim window shrinks to the
+ *    current exchange. Maximum token savings — memory IS the context. */
+export type CompactionMode = "hybrid" | "full";
+
 export interface CortextPluginConfig {
   dbPath: string;
   /** Isolation boundary for memory. "session" (default): one store per session
@@ -19,6 +27,11 @@ export interface CortextPluginConfig {
    *  memory (costs one extra pass per trigger). */
   forceRepass: boolean;
   autoConsolidate: boolean;
+  /** Compaction window mode (see CompactionMode). */
+  compactionMode: CompactionMode;
+  /** Hybrid mode: number of trailing messages kept verbatim (the cut is walked
+   *  back to a user-message boundary so the tail is a self-contained exchange). */
+  protectTail: number;
 }
 
 // focus/stability defaults mirror the tuning carried over from the Hermes
@@ -34,9 +47,12 @@ export const DEFAULTS: CortextPluginConfig = {
   ingestReasoning: true,
   forceRepass: true,
   autoConsolidate: true,
+  compactionMode: "hybrid",
+  protectTail: 6,
 };
 
 const SCOPES: MemoryScope[] = ["agent", "session", "global"];
+const COMPACTION_MODES: CompactionMode[] = ["hybrid", "full"];
 
 export function resolveConfig(raw: Record<string, unknown> | undefined): CortextPluginConfig {
   const cfg: CortextPluginConfig = { ...DEFAULTS };
@@ -47,5 +63,7 @@ export function resolveConfig(raw: Record<string, unknown> | undefined): Cortext
     (cfg as unknown as Record<string, unknown>)[key] = value;
   }
   if (!SCOPES.includes(cfg.memoryScope)) cfg.memoryScope = "session";
+  if (!COMPACTION_MODES.includes(cfg.compactionMode)) cfg.compactionMode = "hybrid";
+  if (!Number.isFinite(cfg.protectTail) || cfg.protectTail < 0) cfg.protectTail = 6;
   return cfg;
 }

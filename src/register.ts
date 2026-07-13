@@ -21,7 +21,7 @@ export function register(api: OpenClawPluginApi): void {
 
   api.registerContextEngine("cortext", (ctx) => {
     store.setBaseDir(ctx?.agentDir);
-    return new CortextContextEngine(store, bus, api.logger, cfg.autoConsolidate, cfg.recallLimit);
+    return new CortextContextEngine(store, bus, api.logger, cfg);
   });
 
   if (cfg.interruptGate) {

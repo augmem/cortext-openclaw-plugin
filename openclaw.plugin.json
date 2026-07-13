@@ -1,7 +1,7 @@
 {
   "id": "cortext",
   "name": "Cortext Memory",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Durable local memory for OpenClaw. Per-conversation-isolated context engine with an interrupt gate over streaming reasoning.",
   "kind": "context-engine",
   "configSchema": {
@@ -66,6 +66,19 @@
         "type": "boolean",
         "description": "Consolidate memory on compaction.",
         "default": true
+      },
+      "compactionMode": {
+        "type": "string",
+        "enum": ["hybrid", "full"],
+        "description": "Cortext owns compaction (no summarizer LLM call). 'hybrid': keep system prompt + long-term recall + a verbatim tail of recent messages. 'full': keep system prompt + Cortext memory only (long-term recall plus the working-memory snapshot); the verbatim window shrinks to the current exchange.",
+        "default": "hybrid"
+      },
+      "protectTail": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 64,
+        "description": "Hybrid mode: trailing messages kept verbatim after compaction (cut is walked back to a user-message boundary).",
+        "default": 6
       }
     }
   },

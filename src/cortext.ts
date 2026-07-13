@@ -106,11 +106,7 @@ export class CortextStore {
       this.engines.set(key, existing);
       return existing;
     }
-    // safe() permits dots, so guard "."/".." — dbPath must stay under baseDir.
-    const name = safe(this.cfg.dbPath);
-    const dir = join(this.baseDir, /^\.+$/.test(name) || !name ? "cortext" : name);
-    try { mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
-    const engine = new CortextEngine(join(dir, `${key}.sqlite`), this.cfg);
+    const engine = new CortextEngine(join(this.storeDir(), `${key}.sqlite`), this.cfg);
     this.engines.set(key, engine);
     while (this.engines.size > MAX_ENGINES) {
       const oldest = this.engines.keys().next().value as string;
@@ -122,6 +118,16 @@ export class CortextStore {
 
   for(ids: ScopeIds): CortextEngine {
     return this.forScope(this.scopeKey(ids));
+  }
+
+  /** The on-disk directory holding this store's scope databases (also used for
+   *  the compaction-state sidecar). safe() permits dots, so "."/".." are
+   *  rejected — dbPath must stay under baseDir. */
+  storeDir(): string {
+    const name = safe(this.cfg.dbPath);
+    const dir = join(this.baseDir, /^\.+$/.test(name) || !name ? "cortext" : name);
+    try { mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
+    return dir;
   }
 
   disposeAll(): void {

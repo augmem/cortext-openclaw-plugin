@@ -87,6 +87,8 @@ Under `plugins.entries.cortext.config`:
 | `ingestReasoning` | `true` | feed `thinking` deltas, not just answer text |
 | `forceRepass` | `true` | request a revise on interrupt (see limits — may be a no-op) |
 | `autoConsolidate` | `true` | consolidate on compaction |
+| `compactionMode` | `hybrid` | `hybrid`: system + recall + verbatim tail; `full`: system + recall + working memory only |
+| `protectTail` | `6` | hybrid: trailing messages kept verbatim (exchange-aligned) |
 
 ## Design and limits
 
@@ -98,9 +100,25 @@ Under `plugins.entries.cortext.config`:
 - **No cross-turn recall cache.** Recall queries Cortext live every assembly, so
   a correction ingested this turn is reflected immediately (an earlier caching
   bug returned stale facts).
-- **Compaction.** Cortext memory persists out-of-band, so the engine reports
-  `ownsCompaction: false` and delegates transcript compaction to the host; on
-  `compact` it consolidates its own graph.
+- **Compaction is a window, not surgery.** Cortext owns compaction
+  (`ownsCompaction: true`) and never calls a summarizer LLM: every message is
+  already in the durable store, so `compact` picks an exchange-aligned cut,
+  and each `assemble` drops the archived prefix from the model context and
+  bridges it with recalled memory. The on-disk transcript is never mutated —
+  nothing is destroyed, and archived content comes back through query-relevant
+  recall each turn (fresher than a frozen summary). The cut anchor is
+  content-based and self-healing: if the host rotates the transcript, the
+  window clears rather than over-dropping. Two modes (`compactionMode`):
+  - **`hybrid`** (default): keep system prompt + long-term recall + a verbatim
+    tail of the last `protectTail` messages, walked back to a user-message
+    boundary so the tail is a self-contained exchange.
+  - **`full`**: keep system prompt + Cortext memory only (long-term recall plus
+    the live working-memory snapshot); the verbatim window shrinks to the
+    current exchange. Maximum savings — memory IS the context.
+
+  Verified live (gateway + budget-pressure compaction): 16 messages archived
+  with no LLM call, and a fact that existed *only* behind the window was
+  answered correctly from memory injection on the next turn.
 - **The gate cannot splice into a live decode**, but it requests a re-pass.
   The agent event stream is one-way (observe only). On `should_interrupt` the
   plugin (a) stages the recalled memory for the next assembly and (b) via

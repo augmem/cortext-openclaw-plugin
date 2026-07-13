@@ -1,4 +1,5 @@
 import type {
+  AgentMessage,
   AssembleParams,
   AssembleResult,
   CompactParams,
@@ -9,7 +10,9 @@ import type {
   IngestResult,
   Logger,
 } from "./openclaw.js";
+import type { CortextPluginConfig } from "./config.js";
 import { CortextStore, formatMemories, memoryBlock, safe } from "./cortext.js";
+import { CompactionState, anchorFor, bridgeMessage, chooseCut, matchesAnchor, readTranscriptMessages } from "./compaction.js";
 import type { InterruptBus } from "./store.js";
 
 // Bound serialized tool-call arguments so a huge payload (a file write, a long
@@ -73,16 +76,20 @@ export class CortextContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "cortext",
     name: "Cortext Memory",
-    version: "0.1.2",
-    ownsCompaction: false,
+    version: "0.2.0",
+    ownsCompaction: true,
   };
+
+  /** Last full (pre-window) assembled view per scope — compact() picks its cut
+   *  from this, since CompactParams carry no messages. */
+  private lastView = new Map<string, AgentMessage[]>();
+  private compaction = new CompactionState();
 
   constructor(
     private readonly store: CortextStore,
     private readonly bus: InterruptBus,
     private readonly logger: Logger,
-    private readonly autoConsolidate: boolean,
-    private readonly recallLimit: number,
+    private readonly cfg: CortextPluginConfig,
   ) {}
 
   async ingest(params: IngestParams): Promise<IngestResult> {
@@ -95,35 +102,98 @@ export class CortextContextEngine implements ContextEngine {
   }
 
   async assemble(params: AssembleParams): Promise<AssembleResult> {
-    const estimatedTokens = estimateTokens(params.messages);
-    const query = (params.prompt ?? latestUserText(params.messages)).trim();
-    if (!query) return { messages: params.messages, estimatedTokens };
-
     const scopeKey = this.store.scopeKey({ sessionKey: params.sessionKey, sessionId: params.sessionId });
+    // Remember the full pre-window view: compact() picks its cut from it.
+    this.lastView.set(scopeKey, params.messages);
+
+    const { messages, windowed } = this.applyWindow(scopeKey, params.messages);
+    const estimatedTokens = estimateTokens(messages);
+    const query = (params.prompt ?? latestUserText(params.messages)).trim();
+
     const engine = this.store.forScope(scopeKey);
-    const ctx = engine.recall(query, this.source(params.sessionId, "agent", "assemble"));
-    const recalled = ctx ? formatMemories(ctx.retrieved_memory, this.recallLimit) : "";
+    const ctx = query ? engine.recall(query, this.source(params.sessionId, "agent", "assemble")) : null;
+    const recalled = ctx ? formatMemories(ctx.retrieved_memory, this.cfg.recallLimit) : "";
+    // Full mode with an active window: the verbatim transcript is gone, so the
+    // live working-memory snapshot rides along with long-term recall.
+    const working = windowed && this.cfg.compactionMode === "full" && ctx
+      ? formatMemories(ctx.working_memory, this.cfg.recallLimit)
+      : "";
     // Drain what the gate staged mid-generation, keyed by the SAME scope key —
     // so a different scope's assemble can never pick it up.
     const staged = this.bus.take(scopeKey);
-    const body = [staged, recalled].filter(Boolean).join("\n");
-    if (!body) return { messages: params.messages, estimatedTokens };
+    const body = [staged, recalled, working].filter(Boolean).join("\n");
 
     return {
-      messages: params.messages,
+      messages,
       estimatedTokens,
-      systemPromptAddition: memoryBlock(body),
+      ...(windowed ? { promptAuthority: "assembled" as const } : {}),
+      ...(body ? { systemPromptAddition: memoryBlock(body) } : {}),
     };
   }
 
+  /** Drop the archived prefix (everything before the anchor), keeping system
+   *  messages and bridging with a note. Self-heals if the anchor is gone. */
+  private applyWindow(scopeKey: string, messages: AgentMessage[]): { messages: AgentMessage[]; windowed: boolean } {
+    const dir = this.store.storeDir();
+    this.compaction.load(dir);
+    const anchor = this.compaction.get(scopeKey);
+    if (!anchor) return { messages, windowed: false };
+
+    let idx = -1;
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role !== "system" && matchesAnchor(messages[i], anchor, messageText)) { idx = i; break; }
+    }
+    if (idx < 0) {
+      // Transcript rotated/rewritten under us — never over-drop; regrow instead.
+      this.compaction.clear(scopeKey, dir);
+      return { messages, windowed: false };
+    }
+    if (idx === 0) return { messages, windowed: false };
+
+    const head = messages.slice(0, idx).filter((m) => m.role === "system");
+    return { messages: [...head, bridgeMessage(this.cfg.compactionMode), ...messages.slice(idx)], windowed: true };
+  }
+
   async compact(params: CompactParams): Promise<CompactResult> {
-    // Cortext memory persists out-of-band; consolidate its graph, delegate
-    // transcript compaction to the host. (Compact params carry no agentId in
-    // the real openclaw types; agent scope derives from the sessionKey.)
-    const engine = this.store.for({ sessionKey: params.sessionKey, sessionId: params.sessionId });
-    if (this.autoConsolidate) engine.consolidate();
+    // Compaction = moving the window, not destroying the transcript. Every
+    // message is already in the durable store (ingest), so we pick an
+    // exchange-aligned cut in the last assembled view, anchor it, and let
+    // assemble() drop the archived prefix from the model context. The on-disk
+    // transcript is untouched; dropped content stays recallable. No LLM call.
+    // (Compact params carry no agentId in the real openclaw types; agent scope
+    // derives from the sessionKey.)
+    const scopeKey = this.store.scopeKey({ sessionKey: params.sessionKey, sessionId: params.sessionId });
+    const engine = this.store.forScope(scopeKey);
+    if (this.cfg.autoConsolidate) engine.consolidate();
     engine.flush();
-    return { ok: true, compacted: false, reason: "cortext retains memory out-of-band; transcript compaction delegated to host" };
+
+    // Preflight compaction on a fresh gateway process runs before any
+    // assemble — fall back to reading the transcript file so a cold-start
+    // compact still works (returning compacted:false here fails the turn).
+    const view = this.lastView.get(scopeKey) ?? readTranscriptMessages(params.sessionFile);
+    if (!view.length) {
+      return { ok: true, compacted: false, reason: "no assembled view or readable transcript for this scope" };
+    }
+    const cut = chooseCut(view, this.cfg.compactionMode, this.cfg.protectTail);
+    const dropped = view.slice(0, cut).filter((m) => m.role !== "system").length;
+    if (cut <= 0 || dropped === 0) {
+      return { ok: true, compacted: false, reason: "nothing before the protected window to archive" };
+    }
+
+    const dir = this.store.storeDir();
+    this.compaction.load(dir);
+    this.compaction.set(scopeKey, anchorFor(view[cut], messageText, dropped), dir);
+
+    const tokensBefore = estimateTokens(view);
+    const kept = this.applyWindow(scopeKey, view).messages;
+    const tokensAfter = estimateTokens(kept);
+    const summary =
+      `Archived ${dropped} message(s) to Cortext durable memory ` +
+      `(${this.cfg.compactionMode} mode; recalled per turn, no summarizer LLM call).`;
+    this.logger.info(
+      `cortext compaction: ${summary} ~${tokensBefore} -> ~${tokensAfter} tokens (scope ${scopeKey})`,
+    );
+    return { ok: true, compacted: true, reason: summary, result: { summary, tokensBefore, tokensAfter } };
   }
 
   async dispose(): Promise<void> {

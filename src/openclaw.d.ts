@@ -74,6 +74,14 @@ export interface CompactResult {
   ok: boolean;
   compacted: boolean;
   reason?: string;
+  /** Extended shape the host reads when present (embedded-agent runner):
+   *  summary/tokensBefore/tokensAfter feed the compaction checkpoint. */
+  result?: {
+    summary?: string;
+    firstKeptEntryId?: string;
+    tokensBefore?: number;
+    tokensAfter?: number;
+  };
 }
 
 export interface ContextEngine {

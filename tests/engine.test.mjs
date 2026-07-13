@@ -138,13 +138,13 @@ test("tool results are ingested (text content part)", async () => {
   } finally { cleanup(); }
 });
 
-test("compact reports ok without owning transcript compaction", async () => {
+test("compact without an assembled view is a safe no-op", async () => {
   const { dir, cleanup } = tempDir();
   try {
     const eng = build(dir).contextEngine;
-    assert.equal(eng.info.ownsCompaction, false);
+    assert.equal(eng.info.ownsCompaction, true, "cortext owns compaction");
     const res = await eng.compact({ sessionId: "S", sessionKey: "agent:main:S" });
     assert.equal(res.ok, true);
-    assert.equal(res.compacted, false);
+    assert.equal(res.compacted, false, "no view yet — nothing to cut");
   } finally { cleanup(); }
 });
