@@ -33,6 +33,7 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:integration": "npm run build && node bench/integration.mjs",
     "test:integration:gateway": "npm run build && node bench/integration-gateway.mjs",
+    "test:integration:compaction": "npm run build && node bench/integration-compaction.mjs",
     "test:unit": "npm run build && node --test tests/store.test.mjs tests/cortext.test.mjs tests/config.test.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"

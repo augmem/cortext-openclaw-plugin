@@ -118,7 +118,10 @@ Under `plugins.entries.cortext.config`:
 
   Verified live (gateway + budget-pressure compaction): 16 messages archived
   with no LLM call, and a fact that existed *only* behind the window was
-  answered correctly from memory injection on the next turn.
+  answered correctly from memory injection on the next turn. Reproduce with
+  `npm run test:integration:compaction` — the script seeds a needle the model
+  never repeats, forces budget compaction, asserts from the transcript that
+  the needle is only in the archived prefix, then probes recall.
 - **The gate cannot splice into a live decode**, but it requests a re-pass.
   The agent event stream is one-way (observe only). On `should_interrupt` the
   plugin (a) stages the recalled memory for the next assembly and (b) via
