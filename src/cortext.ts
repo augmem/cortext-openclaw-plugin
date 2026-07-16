@@ -178,6 +178,22 @@ function neutralize(text: string): string {
     .trim();
 }
 
+/**
+ * Drop memories whose text is already carried verbatim by the kept window —
+ * injecting them again would only spend prompt budget on duplicates. Used for
+ * the working-memory snapshot, which overlaps the tail on long conversations.
+ */
+export function dedupeAgainstWindow(
+  items: CortextMemory[] | undefined,
+  windowTexts: string[],
+): CortextMemory[] {
+  if (!items?.length) return [];
+  return items.filter((item) => {
+    const text = memoryText(item);
+    return text && !windowTexts.some((w) => w.includes(text));
+  });
+}
+
 export function formatMemories(items: CortextMemory[] | undefined, limit: number): string {
   if (!items?.length) return "";
   const lines: string[] = [];

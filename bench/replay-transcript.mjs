@@ -18,13 +18,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { register } from "../dist/register.js";
 
-const args = process.argv.slice(2);
-const file = args.find((a) => !a.startsWith("--"));
-const limit = Number(args[args.indexOf("--limit") + 1] || 400);
-if (!file) { console.error("usage: node bench/replay-transcript.mjs <claude-transcript.jsonl> [--limit N]"); process.exit(1); }
-
 // --- convert Claude Code transcript entries -> OpenClaw AgentMessages ------
-function convert(file) {
+export function convert(file) {
   const messages = [];
   for (const line of readFileSync(file, "utf-8").split("\n")) {
     if (!line.trim()) continue;
@@ -57,7 +52,7 @@ function convert(file) {
 }
 
 // --- minimal real-surface api double (mirrors tests/helpers.mjs) -----------
-function buildEngine(dir, config) {
+export function buildEngine(dir, config) {
   const captured = {};
   register({
     id: "cortext", config: {}, pluginConfig: config,
@@ -70,6 +65,19 @@ function buildEngine(dir, config) {
   });
   return captured.engine;
 }
+
+// --- main (only when executed directly) -------------------------------------
+const isMain = import.meta.url === new URL(`file://${process.argv[1]}`).href;
+if (!isMain) {
+  // imported as a library (replay-judged.mjs) — skip the CLI run
+} else {
+  await main();
+}
+async function main() {
+const args = process.argv.slice(2);
+const file = args.find((a) => !a.startsWith("--"));
+const limit = Number(args[args.indexOf("--limit") + 1] || 400);
+if (!file) { console.error("usage: node bench/replay-transcript.mjs <claude-transcript.jsonl> [--limit N]"); process.exit(1); }
 
 const all = convert(file);
 const roleCounts = all.reduce((acc, m) => ((acc[m.role] = (acc[m.role] ?? 0) + 1), acc), {});
@@ -132,3 +140,4 @@ for (const mode of ["hybrid", "full"]) {
 
 console.log(`\n${fails.length ? "FAILED: " + fails.join("; ") : "ALL REPLAY CHECKS PASSED"}`);
 process.exit(fails.length ? 1 : 0);
+}

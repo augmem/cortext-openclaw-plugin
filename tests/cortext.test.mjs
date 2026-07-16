@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { memoryText, formatMemories, memoryBlock, safe } from "../dist/cortext.js";
+import { memoryText, formatMemories, memoryBlock, safe, dedupeAgainstWindow } from "../dist/cortext.js";
 
 const b64 = (s) => Buffer.from(s, "utf-8").toString("base64");
 
@@ -31,6 +31,18 @@ test("formatMemories neutralizes a data-fence breakout (prompt injection)", () =
   const out = formatMemories([{ modality: "text", text: attack }], 5);
   assert.doesNotMatch(out, /<\/cortext_memory>/i, "closing fence stripped");
   assert.doesNotMatch(out, /BEGIN SYSTEM/i, "fake system marker stripped");
+});
+
+test("dedupeAgainstWindow drops items the kept window already carries verbatim", () => {
+  const items = [
+    { modality: "text", text: "the deploy freeze ends on the 14th" }, // archived — keep
+    { modality: "text", text: "Looks good. What is next?" },          // in tail — drop
+    { modality: "text", text: "" },                                   // empty — drop
+  ];
+  const windowTexts = ["Draft the rollout plan.", "Looks good. What is next?"];
+  const kept = dedupeAgainstWindow(items, windowTexts);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].text, "the deploy freeze ends on the 14th");
 });
 
 test("memoryBlock frames content as reference data, not instructions", () => {

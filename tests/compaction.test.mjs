@@ -14,16 +14,24 @@ const u = (text) => ({ role: "user", content: text });
 const a = (text) => ({ role: "assistant", content: text });
 const sys = (text) => ({ role: "system", content: text });
 
-/** A ten-message conversation with a distinctive early fact. The middle is
- *  padded to realistic length so the archived prefix outweighs the bridge. */
-const PAD = " Detailed discussion followed covering rollout sequencing, canary analysis, dashboards, alert thresholds, and rollback drills.".repeat(4);
+/** A ten-message conversation with a distinctive early fact. Messages are
+ *  padded to realistic length so the archived prefix outweighs the bridge —
+ *  with DISTINCT padding per message: identical repeated padding makes every
+ *  embedding near-identical, which is a degenerate case (it broke recall
+ *  ranking on cortext 1.2.2), not a realistic conversation. */
+const PADS = [
+  " We also walked through the on-call rotation and agreed the pager handoff happens at standup, with escalations routed through the platform channel and weekly summaries posted for the leads.",
+  " Separately, the capacity review showed the ingest tier at sixty percent headroom, so the autoscaling floor stays at four nodes until the traffic migration finishes at the end of the month.",
+  " The compliance checklist still needs the data-retention appendix signed off, and legal asked us to link every subprocessor entry to its audit report before the quarterly review.",
+  " On the frontend side the design team delivered the new empty-state illustrations, and the accessibility audit flagged two contrast issues in the settings panel that are queued for next sprint.",
+];
 function transcript() {
   return [
     sys("You are a helpful assistant."),
-    u("Please remember: the deploy freeze ends on the 14th." + PAD),
-    a("Noted — the deploy freeze ends on the 14th." + PAD),
-    u("Also the staging environment refreshes weekly." + PAD),
-    a("Understood." + PAD),
+    u("Please remember: the deploy freeze ends on the 14th." + PADS[0]),
+    a("Noted — the deploy freeze ends on the 14th." + PADS[1]),
+    u("Also the staging environment refreshes weekly." + PADS[2]),
+    a("Understood." + PADS[3]),
     u("What did we decide about retries?"),
     a("Three retries with exponential backoff."),
     u("Draft the rollout plan."),

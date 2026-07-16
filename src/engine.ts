@@ -11,7 +11,7 @@ import type {
   Logger,
 } from "./openclaw.js";
 import type { CortextPluginConfig } from "./config.js";
-import { CortextStore, formatMemories, memoryBlock, safe } from "./cortext.js";
+import { CortextStore, dedupeAgainstWindow, formatMemories, memoryBlock, safe } from "./cortext.js";
 import { CompactionState, anchorFor, bridgeMessage, chooseCut, matchesAnchor, readTranscriptMessages } from "./compaction.js";
 import type { InterruptBus } from "./store.js";
 
@@ -76,7 +76,7 @@ export class CortextContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "cortext",
     name: "Cortext Memory",
-    version: "0.2.0",
+    version: "0.2.1",
     ownsCompaction: true,
   };
 
@@ -113,10 +113,16 @@ export class CortextContextEngine implements ContextEngine {
     const engine = this.store.forScope(scopeKey);
     const ctx = query ? engine.recall(query, this.source(params.sessionId, "agent", "assemble")) : null;
     const recalled = ctx ? formatMemories(ctx.retrieved_memory, this.cfg.recallLimit) : "";
-    // Full mode with an active window: the verbatim transcript is gone, so the
-    // live working-memory snapshot rides along with long-term recall.
-    const working = windowed && this.cfg.compactionMode === "full" && ctx
-      ? formatMemories(ctx.working_memory, this.cfg.recallLimit)
+    // Any mode with an active window: recently-archived facts may still be
+    // outside query-relevant recall (small stores return a small top-k), but
+    // the live working-memory snapshot — which rides along with the same
+    // recall call at no extra cost — still spans them. Inject it, minus
+    // items already covered verbatim by the kept tail.
+    const working = windowed && ctx
+      ? formatMemories(
+          dedupeAgainstWindow(ctx.working_memory, messages.map((m) => messageText(m.content))),
+          this.cfg.recallLimit,
+        )
       : "";
     // Drain what the gate staged mid-generation, keyed by the SAME scope key —
     // so a different scope's assemble can never pick it up.

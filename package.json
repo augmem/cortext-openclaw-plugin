@@ -1,6 +1,6 @@
 {
   "name": "@augmem/cortext-openclaw-plugin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Cortext memory for OpenClaw: a per-conversation-isolated context engine plus an interrupt gate over streaming reasoning.",
   "license": "Apache-2.0",
   "type": "module",
@@ -15,7 +15,9 @@
     "url": "https://github.com/augmem/cortext-openclaw-plugin/issues"
   },
   "openclaw": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "files": [
     "dist/**/*",
@@ -39,7 +41,7 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "@augmem/cortext": "^1.2.0"
+    "@augmem/cortext": "^1.2.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

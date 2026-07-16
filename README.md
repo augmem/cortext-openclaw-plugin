@@ -112,9 +112,14 @@ Under `plugins.entries.cortext.config`:
   - **`hybrid`** (default): keep system prompt + long-term recall + a verbatim
     tail of the last `protectTail` messages, walked back to a user-message
     boundary so the tail is a self-contained exchange.
-  - **`full`**: keep system prompt + Cortext memory only (long-term recall plus
-    the live working-memory snapshot); the verbatim window shrinks to the
-    current exchange. Maximum savings — memory IS the context.
+  - **`full`**: keep system prompt + Cortext memory only; the verbatim window
+    shrinks to the current exchange. Maximum savings — memory IS the context.
+
+  After compaction, both modes also inject the live working-memory snapshot
+  (it arrives with the same recall call — no extra query), deduplicated
+  against anything the kept tail already carries verbatim. This covers the
+  early-session gap where a just-archived fact is not yet surfaced by
+  query-relevant recall.
 
   Verified live (gateway + budget-pressure compaction): 16 messages archived
   with no LLM call, and a fact that existed *only* behind the window was
@@ -122,6 +127,18 @@ Under `plugins.entries.cortext.config`:
   `npm run test:integration:compaction` — the script seeds a needle the model
   never repeats, forces budget compaction, asserts from the transcript that
   the needle is only in the archived prefix, then probes recall.
+
+  Measured against the alternative (offline replay of a real ~345k-token,
+  ~1,900-message Claude Code transcript; LLM-judged QA on archived-only
+  content; see `bench/replay-judged.mjs`): a real summarizer running
+  OpenClaw's own structured-summary compaction contract compressed 345k
+  tokens into a ~910-token summary at 14 LLM calls per compaction and scored
+  **0/30** on archived-detail questions. Cortext compaction used **0** LLM
+  calls, and every archived-detail point scored in any arm came from Cortext
+  memory injection. Recall of fine-grained archived detail is a work in
+  progress (needle-probe hit rate on that transcript: 3/7 on
+  `@augmem/cortext` 1.2.2, up from 1/7 on 1.2.1) — but the alternative is a
+  summary that retains none of it.
 - **The gate cannot splice into a live decode**, but it requests a re-pass.
   The agent event stream is one-way (observe only). On `should_interrupt` the
   plugin (a) stages the recalled memory for the next assembly and (b) via

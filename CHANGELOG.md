@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-16
+
+### Changed
+
+- **`@augmem/cortext` 1.2.2.** Brings the engine's durable-ingestion scaling fix
+  (flat per-write cost — verified independently: 900 real messages in flat
+  ~3–8s/100 batches vs a 4.9s→85s runaway on 1.2.0) and reworked long-term
+  retrieval ranking (verified on an identical 1,915-memory store built from a
+  real ~345k-token agent transcript: needle-recall probes went 1/7 → 3/7 on the
+  engine swap alone).
+- **Working memory now rides along in `hybrid` mode after compaction** (it
+  always did in `full` mode). The 1.2.2 ranking scales retrieval top-k down on
+  small stores, so a fact archived moments ago could fall outside
+  query-relevant recall right after an early-session compaction; the live
+  working-memory snapshot (returned by the same recall call, no extra query)
+  still spans it. Injected items already carried verbatim by the kept tail are
+  deduplicated out (`dedupeAgainstWindow`), so long sessions don't pay for
+  duplicates. Caught by the existing archived-fact-recall unit test.
+
+### Fixed
+
+- Compaction unit-test fixture padded every message with the same repeated
+  sentence, making all embeddings near-identical — a degenerate corpus, not a
+  realistic one. Each message now carries distinct realistic padding; the
+  recall assertion is unchanged.
+
 ## [0.2.0] - 2026-07-13
 
 ### Added
