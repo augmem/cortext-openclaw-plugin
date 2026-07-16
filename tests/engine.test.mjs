@@ -148,3 +148,32 @@ test("compact without an assembled view is a safe no-op", async () => {
     assert.equal(res.compacted, false, "no view yet — nothing to cut");
   } finally { cleanup(); }
 });
+
+test("ingest consolidates when the engine reports consolidation_state 'required'", async () => {
+  const { CortextContextEngine } = await import("../dist/engine.js");
+  const { resolveConfig } = await import("../dist/config.js");
+  const calls = { consolidate: 0 };
+  const fakeStoreFor = (state) => ({
+    for: () => ({
+      ingest: () => ({ consolidation_state: state, retrieved_memory: [], working_memory: [] }),
+      consolidate: () => { calls.consolidate++; },
+    }),
+  });
+  const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+  const bus = { take: () => "" };
+
+  // required + autoConsolidate (default true) -> consolidates
+  let eng = new CortextContextEngine(fakeStoreFor("required"), bus, logger, resolveConfig({}));
+  await eng.ingest({ sessionId: "S", sessionKey: "agent:main:S", message: { role: "user", content: "x" } });
+  assert.equal(calls.consolidate, 1, "'required' hint triggers consolidate");
+
+  // 'recommended' is deferred to compact-time autoConsolidate
+  eng = new CortextContextEngine(fakeStoreFor("recommended"), bus, logger, resolveConfig({}));
+  await eng.ingest({ sessionId: "S", sessionKey: "agent:main:S", message: { role: "user", content: "x" } });
+  assert.equal(calls.consolidate, 1, "'recommended' does not consolidate at ingest");
+
+  // autoConsolidate: false disables it
+  eng = new CortextContextEngine(fakeStoreFor("required"), bus, logger, resolveConfig({ autoConsolidate: false }));
+  await eng.ingest({ sessionId: "S", sessionKey: "agent:main:S", message: { role: "user", content: "x" } });
+  assert.equal(calls.consolidate, 1, "autoConsolidate=false ignores the hint");
+});

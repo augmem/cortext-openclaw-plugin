@@ -76,7 +76,7 @@ export class CortextContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "cortext",
     name: "Cortext Memory",
-    version: "0.2.1",
+    version: "0.2.2",
     ownsCompaction: true,
   };
 
@@ -98,6 +98,14 @@ export class CortextContextEngine implements ContextEngine {
     if (!text.trim()) return { ingested: false };
     const engine = this.store.for({ sessionKey: params.sessionKey, sessionId: params.sessionId });
     const ctx = engine.ingest(text, this.source(params.sessionId, role, "ingest"));
+    // The engine's throughput-derived hint (@augmem/cortext ≥1.2.2): write
+    // rate has degraded to the required band — consolidation restores it
+    // (measured: 0.1–1.0s per pass, and it re-arms the hint envelope).
+    // "recommended" is left to the existing compact-time autoConsolidate.
+    if (this.cfg.autoConsolidate && ctx?.consolidation_state === "required") {
+      engine.consolidate();
+      this.logger.debug?.("cortext: consolidated on engine 'required' hint");
+    }
     return { ingested: ctx !== null };
   }
 
