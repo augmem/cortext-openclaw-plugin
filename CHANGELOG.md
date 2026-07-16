@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-07-16
+
+### Changed
+
+- **Consolidation is compact-time only again** — reverts 0.2.2's
+  ingest-time consolidation on the engine's `consolidation_state: "required"`
+  hint. Rationale: measured retrieval is identical with and without
+  hint-driven consolidation (same needle hits and ranks across
+  no-consolidation, required-only, and recommended+required policy stores),
+  so ingest-time consolidation bought no recall — and the throughput envelope
+  behind the hint is being reworked upstream (it catches rate excursions but
+  adapts around slow drift). Compact-time `autoConsolidate` is the safe,
+  sufficient cadence until the engine signal settles.
+
 ## [0.2.2] - 2026-07-16
 
 ### Added

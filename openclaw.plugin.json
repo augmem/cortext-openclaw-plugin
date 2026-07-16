@@ -1,7 +1,7 @@
 {
   "id": "cortext",
   "name": "Cortext Memory",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Durable local memory for OpenClaw. Per-conversation-isolated context engine with an interrupt gate over streaming reasoning.",
   "kind": "context-engine",
   "configSchema": {

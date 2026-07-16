@@ -86,7 +86,7 @@ Under `plugins.entries.cortext.config`:
 | `interruptGate` | `true` | run the streaming gate |
 | `ingestReasoning` | `true` | feed `thinking` deltas, not just answer text |
 | `forceRepass` | `true` | request a revise on interrupt (see limits — may be a no-op) |
-| `autoConsolidate` | `true` | consolidate on compaction, and immediately when the engine's throughput-derived hint reports `consolidation_state: "required"` (write rate degraded; a pass restores it — measured 0.1–1.0s) |
+| `autoConsolidate` | `true` | consolidate on compaction |
 | `compactionMode` | `hybrid` | `hybrid`: system + recall + verbatim tail; `full`: system + recall + working memory only |
 | `protectTail` | `6` | hybrid: trailing messages kept verbatim (exchange-aligned) |
 
