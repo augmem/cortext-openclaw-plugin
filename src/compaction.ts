@@ -22,7 +22,9 @@ export interface CompactionAnchor {
   role: string;
   /** First KEEP_PREFIX_CHARS of the anchor message's extracted text. */
   textPrefix: string;
-  /** Messages dropped when the anchor was set (telemetry only). */
+  /** Non-system messages before the cut when the anchor was set. Used to
+   *  disambiguate duplicate anchor text (repeated short user messages): the
+   *  true cut is the occurrence at exactly this position. */
   dropped: number;
   ts: number;
 }

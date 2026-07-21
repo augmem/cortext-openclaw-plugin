@@ -150,10 +150,25 @@ export class CortextContextEngine implements ContextEngine {
     const anchor = this.compaction.get(scopeKey);
     if (!anchor) return { messages, windowed: false };
 
+    // The anchor text can occur more than once (repeated short user messages,
+    // self-quoting transcripts): an early duplicate would silently keep the
+    // whole conversation; a late one would over-drop. Disambiguate with the
+    // anchor's recorded position — `dropped` counts the non-system messages
+    // before the true cut, and the prefix is immutable while windowed, so the
+    // right occurrence is the one at that exact position (fall back to the
+    // first match at or past it if the host inserted messages).
     let idx = -1;
+    let fallbackIdx = -1;
+    let nonSystem = 0;
     for (let i = 0; i < messages.length; i++) {
-      if (messages[i].role !== "system" && matchesAnchor(messages[i], anchor, messageText)) { idx = i; break; }
+      if (messages[i].role === "system") continue;
+      if (matchesAnchor(messages[i], anchor, messageText)) {
+        if (nonSystem === anchor.dropped) { idx = i; break; }
+        if (nonSystem > anchor.dropped && fallbackIdx < 0) fallbackIdx = i;
+      }
+      nonSystem++;
     }
+    if (idx < 0) idx = fallbackIdx;
     if (idx < 0) {
       // Transcript rotated/rewritten under us — never over-drop; regrow instead.
       this.compaction.clear(scopeKey, dir);

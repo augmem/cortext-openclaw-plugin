@@ -192,3 +192,32 @@ test("repeat compaction is a no-op when only the protected tail remains", async 
     assert.equal(res.compacted, false, "nothing before the protected window");
   } finally { cleanup(); }
 });
+
+test("duplicate anchor text: window still cuts at the recorded position, not an early twin", async () => {
+  const { dir, cleanup } = tempDir();
+  try {
+    const eng = build(dir, { compactionMode: "full" }).contextEngine;
+    // The final user message text ("Status?") also appears early in the
+    // conversation — an early-match anchor would keep everything.
+    const msgs = [
+      sys("You are a helpful assistant."),
+      u("Status?"),
+      a("All systems nominal." + PADS[0]),
+      u("Please remember: the incident retro is on the 22nd." + PADS[1]),
+      a("Noted." + PADS[2]),
+      u("Draft the summary email." + PADS[3]),
+      a("Here is the draft: greetings team, see attached."),
+      u("Status?"),
+    ];
+    await warmIngest(eng, msgs);
+    await eng.assemble({ sessionId: "S", sessionKey: sk, messages: msgs, prompt: "Status?" });
+    const res = await eng.compact({ sessionId: "S", sessionKey: sk });
+    assert.equal(res.compacted, true);
+
+    const out = await eng.assemble({ sessionId: "S", sessionKey: sk, messages: msgs, prompt: "Status?" });
+    // full mode: system + bridge + the FINAL "Status?" — not the early twin.
+    assert.equal(out.messages.length, 3, `window applied at the last occurrence (got ${out.messages.length} messages)`);
+    const flat = out.messages.map((m) => String(m.content)).join(" ");
+    assert.doesNotMatch(flat, /incident retro/, "archived middle is out of the verbatim window");
+  } finally { cleanup(); }
+});
