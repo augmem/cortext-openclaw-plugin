@@ -76,7 +76,7 @@ export class CortextContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "cortext",
     name: "Cortext Memory",
-    version: "0.2.3",
+    version: "0.2.4",
     ownsCompaction: true,
   };
 

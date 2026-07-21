@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-07-21
+
+### Fixed
+
+- **Duplicate compaction-anchor text no longer defeats the window.**
+  `applyWindow` matched the content anchor at its first occurrence; when the
+  anchor message's text repeats earlier in the conversation (repeated short
+  user messages like "Status?", self-quoting transcripts), the window
+  silently never applied and the full conversation stayed in the model
+  context after compaction. The anchor's recorded position (`dropped` =
+  non-system messages before the cut) now disambiguates: the match at
+  exactly that position wins, with a first-match-at-or-past-it fallback and
+  the existing self-heal. Found by the judged replay benchmark (full-mode
+  arm archived 2,013 messages while the token estimate barely moved);
+  regression-tested.
+
+### Changed
+
+- **`@augmem/cortext` 1.2.3.** Brings the throughput-hint drift re-arm with
+  materiality gating (verified: spurious `required` consolidations on the
+  flat durable path drop 58 → 2 across a 2,010-message ingest) and bounded
+  natural-retention/retrieval work (verified: whole-message durable ingest
+  of the full ~372k-token corpus roughly halved, ~120s → ~57s; the
+  natural-path sentence-stream experiment went from an unbounded
+  36→242s-per-2,500-packet growth curve on 1.2.2 to flat ~40s batches,
+  15.7k packets in 213s total, with needle recall improving 3/7 → 4/7).
+
 ## [0.2.3] - 2026-07-16
 
 ### Changed
