@@ -45,6 +45,47 @@ openclaw plugins install @augmem/cortext-openclaw-plugin
 Everything above is reproducible from [`bench/`](bench/) against a real
 `openclaw` gateway; every release ships only after the full live suite passes.
 
+### Write cost stays bounded
+
+Per-write cost naturally creeps up as a store grows; the engine watches its
+own write-rate envelope and raises a consolidation hint when throughput
+drifts, and a sub-second consolidation pass knocks the cost back down — a
+small, bounded sawtooth instead of unbounded growth. Measured on the same
+real ~372k-token corpus streamed as 15,709 sentence packets (worst-case
+write pressure; whole-message ingest is ~8× fewer writes):
+
+```mermaid
+xychart-beta
+    title "Natural-stream write cost per 2,500 packets (same corpus, same machine)"
+    x-axis "packets ingested" [2500, 5000, 7500, 10000, 12500, 15000]
+    y-axis "batch seconds" 0 --> 280
+    line "engine 1.2.2 (drift undetected)" [36, 77, 125, 158, 204, 242]
+    line "engine 1.2.3 (hint-driven consolidation)" [19, 41, 32, 28, 38, 42]
+```
+
+On 1.2.3 the hint fired ~every 500 packets and each consolidation cost
+~60ms (2.1s total across the run); the full 15.7k-packet stream ingested in
+214s vs ~1,000s on 1.2.2. Whole-message durable ingest (the plugin's
+default) runs ~28ms per message, flat.
+
+## The loop
+
+```mermaid
+flowchart LR
+    subgraph turn["every turn"]
+        M[message<br/>user / assistant / tools] -->|ingest, durable| S[(Cortext store<br/>on-device SQLite)]
+        P[current prompt] -->|assemble| R{{live recall<br/>query-relevant LTM<br/>+ working memory}}
+        S --> R
+        R -->|memory block| CTX[model context]
+        G[streaming gate<br/>watches reasoning] -.->|stage recall,<br/>request revise| CTX
+    end
+    B[window full] -->|compact: slide anchor,<br/>0 LLM calls| W[verbatim tail shrinks<br/>store keeps everything]
+    W --> R
+```
+
+Recall runs from turn one; compaction only changes how much verbatim tail
+rides along — the memory side never changes.
+
 ## How it plugs in
 
 Two OpenClaw surfaces (verified against the installed `openclaw` package's
