@@ -3,11 +3,12 @@
 [![npm](https://img.shields.io/npm/v/%40augmem%2Fcortext-openclaw-plugin)](https://www.npmjs.com/package/@augmem/cortext-openclaw-plugin)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
-**Durable local memory and free compaction for [OpenClaw](https://openclaw.ai)
-agents.** Every message lands in a native, on-device memory engine
+**Living memory for [OpenClaw](https://openclaw.ai) agents — and compaction
+for free.** Every message is written to a native, on-device memory engine
 ([`@augmem/cortext`](https://github.com/augmem/cortext)) as the conversation
-happens — so when the context window fills up, nothing has to be summarized,
-because nothing is being thrown away.
+happens, and every turn re-queries that memory live against the current
+prompt. So when the context window fills up, nothing has to be summarized —
+nothing was being thrown away in the first place.
 
 ```bash
 openclaw plugins install @augmem/cortext-openclaw-plugin
@@ -15,6 +16,12 @@ openclaw plugins install @augmem/cortext-openclaw-plugin
 
 ## Why
 
+- **Recall on every turn, not just after compaction.** Each assembly queries
+  memory live with the current prompt — what gets injected is relevant to
+  what's being asked *right now*, and a correction made this turn is
+  reflected on the next (no cross-turn cache, no frozen digest). Mid-turn,
+  a streaming gate watches the model's reasoning and can stage recall and
+  request a revise before the answer is finalized.
 - **Compaction with zero LLM calls.** Native compaction pays a summarizer
   every time the window fills and hopes the summary kept what you'll need.
   Cortext compaction just moves a window: a real ~372k-token session
