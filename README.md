@@ -1,15 +1,52 @@
 # Cortext for OpenClaw
 
-Durable local memory for [OpenClaw](https://openclaw.ai), built on the native
-[`@augmem/cortext`](https://github.com/augmem/cortext) engine. It plugs into two
-OpenClaw surfaces (verified against the installed `openclaw` package's types, not
-docs):
+[![npm](https://img.shields.io/npm/v/%40augmem%2Fcortext-openclaw-plugin)](https://www.npmjs.com/package/@augmem/cortext-openclaw-plugin)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+
+**Durable local memory and free compaction for [OpenClaw](https://openclaw.ai)
+agents.** Every message lands in a native, on-device memory engine
+([`@augmem/cortext`](https://github.com/augmem/cortext)) as the conversation
+happens — so when the context window fills up, nothing has to be summarized,
+because nothing is being thrown away.
+
+```bash
+openclaw plugins install @augmem/cortext-openclaw-plugin
+```
+
+## Why
+
+- **Compaction with zero LLM calls.** Native compaction pays a summarizer
+  every time the window fills and hopes the summary kept what you'll need.
+  Cortext compaction just moves a window: a real ~372k-token session
+  compacts to ~1.5k tokens instantly, for free, and archived content comes
+  back through query-relevant recall every turn.
+- **Measured against the alternative, not vibes.** On LLM-judged QA over
+  archived-only content from a real 2,000-message session, window+recall
+  scored **4/30** vs **1/30** for a real summarizer running OpenClaw's own
+  compaction contract (16 LLM calls per compaction vs 0), with a window-only
+  floor of 0/30. Nobody aces needle trivia over 372k tokens — but the free
+  option loses nothing and recovers details no summary retains.
+- **Fast enough to forget it's there.** Flat ~28ms per-message durable
+  ingest (engine ≥1.2.3), fully offline after a one-time model download, no
+  per-turn network.
+- **Isolated by default.** One SQLite store per conversation — a shared
+  channel bot can't leak one user's facts to another. Verified live, with
+  positive controls.
+- **The transcript is never mutated.** Compaction is a window over the
+  on-disk transcript, anchored and self-healing — never destructive surgery.
+
+Everything above is reproducible from [`bench/`](bench/) against a real
+`openclaw` gateway; every release ships only after the full live suite passes.
+
+## How it plugs in
+
+Two OpenClaw surfaces (verified against the installed `openclaw` package's
+types, not docs):
 
 1. **Context engine** (`api.registerContextEngine`) — Cortext owns the exclusive
    `plugins.slots.contextEngine` slot. It writes each message to memory on
-   `ingest`, and prepends recalled long-term memory to the system prompt on
-   `assemble`. Memory is **isolated per conversation** by default (see
-   [Isolation](#isolation)).
+   `ingest`, prepends recalled long-term memory to the system prompt on
+   `assemble`, and owns compaction (`ownsCompaction: true`).
 2. **Streaming gate** (`api.agent.events.registerAgentEventSubscription`) —
    subscribes to the agent event stream and feeds `thinking` (reasoning) and
    `assistant` deltas through Cortext's interrupt gate as they stream. When
@@ -128,17 +165,19 @@ Under `plugins.entries.cortext.config`:
   never repeats, forces budget compaction, asserts from the transcript that
   the needle is only in the archived prefix, then probes recall.
 
-  Measured against the alternative (offline replay of a real ~345k-token,
-  ~1,900-message Claude Code transcript; LLM-judged QA on archived-only
+  Measured against the alternative (offline replay of a real ~372k-token,
+  ~2,000-message Claude Code transcript; LLM-judged QA on archived-only
   content; see `bench/replay-judged.mjs`): a real summarizer running
-  OpenClaw's own structured-summary compaction contract compressed 345k
-  tokens into a ~910-token summary at 14 LLM calls per compaction and scored
-  **0/30** on archived-detail questions. Cortext compaction used **0** LLM
-  calls, and every archived-detail point scored in any arm came from Cortext
-  memory injection. Recall of fine-grained archived detail is a work in
-  progress (needle-probe hit rate on that transcript: 3/7 on
-  `@augmem/cortext` 1.2.2, up from 1/7 on 1.2.1) — but the alternative is a
-  summary that retains none of it.
+  OpenClaw's own structured-summary compaction contract compressed 372k
+  tokens into a ~1k-token summary at 16 LLM calls per compaction and scored
+  **1/30** on archived-detail questions (its one hit was also answerable
+  from the kept window alone). Cortext compaction used **0** LLM calls and
+  scored **4/30**; the window-only floor was 0/30, so every genuinely
+  archived detail recovered in any arm came from Cortext memory injection.
+  Recall of fine-grained archived detail is a work in progress — needle
+  probes improved release over release (1/7 → 3/7 → 4/7 across engine
+  1.2.1 → 1.2.3 configurations) — but the alternative is a summary that
+  retains none of it.
 - **The gate cannot splice into a live decode**, but it requests a re-pass.
   The agent event stream is one-way (observe only). On `should_interrupt` the
   plugin (a) stages the recalled memory for the next assembly and (b) via
