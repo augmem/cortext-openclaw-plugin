@@ -34,39 +34,16 @@ openclaw plugins install @augmem/cortext-openclaw-plugin
   floor of 0/30. Nobody aces needle trivia over 372k tokens — but the free
   option loses nothing and recovers details no summary retains.
 - **Fast enough to forget it's there.** Flat ~28ms per-message durable
-  ingest (engine ≥1.2.3), fully offline after a one-time model download, no
-  per-turn network.
+  ingest, fully offline after a one-time model download, no per-turn
+  network, no API keys.
 - **Isolated by default.** One SQLite store per conversation — a shared
   channel bot can't leak one user's facts to another. Verified live, with
   positive controls.
 - **The transcript is never mutated.** Compaction is a window over the
-  on-disk transcript, anchored and self-healing — never destructive surgery.
+  on-disk transcript — never destructive surgery.
 
 Everything above is reproducible from [`bench/`](bench/) against a real
 `openclaw` gateway; every release ships only after the full live suite passes.
-
-### Write cost stays bounded
-
-Per-write cost naturally creeps up as a store grows; the engine watches its
-own write-rate envelope and raises a consolidation hint when throughput
-drifts, and a sub-second consolidation pass knocks the cost back down — a
-small, bounded sawtooth instead of unbounded growth. Measured on the same
-real ~372k-token corpus streamed as 15,709 sentence packets (worst-case
-write pressure; whole-message ingest is ~8× fewer writes):
-
-```mermaid
-xychart-beta
-    title "Natural-stream write cost per 2,500 packets (same corpus, same machine)"
-    x-axis "packets ingested" [2500, 5000, 7500, 10000, 12500, 15000]
-    y-axis "batch seconds" 0 --> 280
-    line "engine 1.2.2 (drift undetected)" [36, 77, 125, 158, 204, 242]
-    line "engine 1.2.3 (hint-driven consolidation)" [19, 41, 32, 28, 38, 42]
-```
-
-On 1.2.3 the hint fired ~every 500 packets and each consolidation cost
-~60ms (2.1s total across the run); the full 15.7k-packet stream ingested in
-214s vs ~1,000s on 1.2.2. Whole-message durable ingest (the plugin's
-default) runs ~28ms per message, flat.
 
 ## The loop
 
@@ -86,55 +63,71 @@ flowchart LR
 Recall runs from turn one; compaction only changes how much verbatim tail
 rides along — the memory side never changes.
 
+## Compaction
+
+Cortext owns the compaction slot (`ownsCompaction: true`) and never calls a
+summarizer. Because every message is already in the durable store, `compact`
+just picks an exchange-aligned cut in the conversation and anchors it; from
+then on each `assemble` drops the archived prefix from the model context and
+bridges it with recalled memory plus the live working-memory snapshot
+(deduplicated against anything the kept tail already carries verbatim). The
+on-disk transcript is untouched, and archived content keeps coming back
+through query-relevant recall — fresher than any frozen summary.
+
+The anchor is content-based *and* position-checked (duplicate message text
+can't fool it), and self-healing: if the host rotates or rewrites the
+transcript, the window clears and regrows rather than over-dropping.
+
+Two modes (`compactionMode`):
+
+- **`hybrid`** (default) — keep the system prompt + memory injection + a
+  verbatim tail of the last `protectTail` messages, walked back to a
+  user-message boundary so the tail is a self-contained exchange.
+- **`full`** — keep the system prompt + memory injection only; the verbatim
+  window shrinks to the current exchange. Maximum savings — memory IS the
+  context.
+
+## Write cost stays bounded
+
+Per-write cost naturally creeps up as a store grows; the engine watches its
+own write-rate envelope and raises a consolidation hint when throughput
+drifts, and a sub-second consolidation pass knocks the cost back down — a
+small, bounded sawtooth instead of unbounded growth. Measured on the same
+real ~372k-token corpus streamed as 15,709 sentence packets (worst-case
+write pressure; whole-message ingest is ~8× fewer writes):
+
+```mermaid
+xychart-beta
+    title "Natural-stream write cost per 2,500 packets (same corpus, same machine)"
+    x-axis "packets ingested" [2500, 5000, 7500, 10000, 12500, 15000]
+    y-axis "batch seconds" 0 --> 280
+    line "engine 1.2.2 (drift undetected)" [36, 77, 125, 158, 204, 242]
+    line "engine 1.2.3 (hint-driven consolidation)" [19, 41, 32, 28, 38, 42]
+```
+
+On 1.2.3 the hint fired ~every 500 packets and each consolidation cost
+~60ms; the full 15.7k-packet stream ingested in 214s vs ~1,000s on 1.2.2.
+Whole-message durable ingest (the plugin's default) runs ~28ms per message,
+flat. The plugin consolidates at compaction time (`autoConsolidate`).
+
 ## How it plugs in
 
 Two OpenClaw surfaces (verified against the installed `openclaw` package's
 types, not docs):
 
-1. **Context engine** (`api.registerContextEngine`) — Cortext owns the exclusive
-   `plugins.slots.contextEngine` slot. It writes each message to memory on
-   `ingest`, prepends recalled long-term memory to the system prompt on
-   `assemble`, and owns compaction (`ownsCompaction: true`).
+1. **Context engine** (`api.registerContextEngine`) — Cortext owns the
+   exclusive `plugins.slots.contextEngine` slot: `ingest` writes each message
+   (user, assistant, tool calls, tool results) to durable memory, `assemble`
+   prepends live recall to the system prompt, and `compact` slides the
+   window.
 2. **Streaming gate** (`api.agent.events.registerAgentEventSubscription`) —
-   subscribes to the agent event stream and feeds `thinking` (reasoning) and
-   `assistant` deltas through Cortext's interrupt gate as they stream. When
-   Cortext reports `should_interrupt` / `at_boundary`, the recalled memory is
-   staged (keyed by the session's scope) for the next assembly, and — via
-   `api.on("before_agent_finalize")` — a **revise of the current answer** is
-   requested (see the limits note below).
+   feeds `thinking` (reasoning) and `assistant` deltas through Cortext's
+   interrupt gate as they stream. On `should_interrupt` / `at_boundary` the
+   recalled memory is staged for the next assembly and — via
+   `api.on("before_agent_finalize")` — a revise of the current answer is
+   requested (see [limits](#design-and-limits)).
 
-## Isolation
-
-Cortext keeps one SQLite store **per isolation scope** — source ids are metadata
-within a store, so distinct scopes are distinct databases (staged gate memory is
-keyed by the same scope, so it can't cross the boundary either). `memoryScope`:
-
-- **`session`** (default) — one store per conversation. Safe when an agent serves
-  multiple people (a shared channel bot): memory never crosses conversations.
-  Verified live: a fresh session cannot recall a prior session's fact.
-- **`agent`** — one store per agent identity; memory persists across that agent's
-  sessions. Use only for **single-user** agents — it shares memory across every
-  conversation the agent handles. Verified live: agent `bob` cannot see agent
-  `main`'s memory (isolation is across agents, not sessions).
-- **`global`** — a single shared store.
-
-Session keys always fold into the scope key (sessionId alone is not unique across
-agents), and an absent/non-canonical agent normalizes to `main` like OpenClaw.
-
-## Requirements
-
-- Node.js ≥ 18.
-- `@augmem/cortext` with a native prebuild for your platform — installed as a
-  dependency. **On first use Cortext downloads its local model assets once**
-  (one network fetch); after that, memory runs fully offline with no per-turn
-  network and no LLM calls.
-- OpenClaw with the context-engine slot (`plugins.slots.contextEngine`).
-
-## Install
-
-```bash
-openclaw plugins install @augmem/cortext-openclaw-plugin
-```
+## Install & configure
 
 ```jsonc
 // openclaw.json
@@ -156,7 +149,9 @@ openclaw plugins install @augmem/cortext-openclaw-plugin
 If no engine is selected, OpenClaw runs its built-in `legacy` engine and this
 plugin is not used.
 
-## Configuration
+Requirements: Node.js ≥ 18; a platform with a `@augmem/cortext` native
+prebuild (installed as a dependency). On first use Cortext downloads its
+local model assets once; after that, memory runs fully offline.
 
 Under `plugins.entries.cortext.config`:
 
@@ -170,97 +165,92 @@ Under `plugins.entries.cortext.config`:
 | `recallLimit` | `12` | max memories injected per assembly |
 | `interruptGate` | `true` | run the streaming gate |
 | `ingestReasoning` | `true` | feed `thinking` deltas, not just answer text |
-| `forceRepass` | `true` | request a revise on interrupt (see limits — may be a no-op) |
+| `forceRepass` | `true` | request a revise on interrupt (gateway only; no-op elsewhere) |
 | `autoConsolidate` | `true` | consolidate on compaction |
-| `compactionMode` | `hybrid` | `hybrid`: system + recall + verbatim tail; `full`: system + recall + working memory only |
+| `compactionMode` | `hybrid` | `hybrid`: memory + verbatim tail; `full`: memory only |
 | `protectTail` | `6` | hybrid: trailing messages kept verbatim (exchange-aligned) |
+
+## Isolation
+
+Cortext keeps one SQLite store **per isolation scope** — source ids are
+metadata within a store, so distinct scopes are distinct databases (staged
+gate memory is keyed by the same scope, so it can't cross the boundary
+either). `memoryScope`:
+
+- **`session`** (default) — one store per conversation. Safe when an agent
+  serves multiple people (a shared channel bot): memory never crosses
+  conversations.
+- **`agent`** — one store per agent identity; memory persists across that
+  agent's sessions. Use only for **single-user** agents — it shares memory
+  across every conversation the agent handles.
+- **`global`** — a single shared store.
+
+Session keys always fold into the scope key (a sessionId alone is not unique
+across agents), and an absent/non-canonical agent normalizes to `main` like
+OpenClaw. Both session and agent isolation are asserted live by the
+integration suite, each with a positive control (the same scope *does*
+recall the fact; the needle is a nonsense token a model can't guess).
 
 ## Design and limits
 
 - **Recalled memory is untrusted input.** A prior turn could have ingested a
   prompt-injection payload. Before injection, recalled text is stripped of
   data-fence breakouts and fake system markers, and wrapped in a block that
-  explicitly labels it as reference data, not instructions. This is a mitigation,
-  not a guarantee.
-- **No cross-turn recall cache.** Recall queries Cortext live every assembly, so
-  a correction ingested this turn is reflected immediately (an earlier caching
-  bug returned stale facts).
-- **Compaction is a window, not surgery.** Cortext owns compaction
-  (`ownsCompaction: true`) and never calls a summarizer LLM: every message is
-  already in the durable store, so `compact` picks an exchange-aligned cut,
-  and each `assemble` drops the archived prefix from the model context and
-  bridges it with recalled memory. The on-disk transcript is never mutated —
-  nothing is destroyed, and archived content comes back through query-relevant
-  recall each turn (fresher than a frozen summary). The cut anchor is
-  content-based and self-healing: if the host rotates the transcript, the
-  window clears rather than over-dropping. Two modes (`compactionMode`):
-  - **`hybrid`** (default): keep system prompt + long-term recall + a verbatim
-    tail of the last `protectTail` messages, walked back to a user-message
-    boundary so the tail is a self-contained exchange.
-  - **`full`**: keep system prompt + Cortext memory only; the verbatim window
-    shrinks to the current exchange. Maximum savings — memory IS the context.
+  explicitly labels it as reference data, not instructions. This is a
+  mitigation, not a guarantee.
+- **Fine-grained recall is a work in progress.** Retrieval reliably brings
+  back conversationally salient facts (decisions, named results, user
+  statements); one-off identifiers buried in bulk tool output are hit or
+  miss — needle probes on a real 372k-token transcript improved release
+  over release (1/7 → 3/7 → 4/7 across engine 1.2.1 → 1.2.3) but are not
+  at ceiling. For calibration: a real summarizer scored 0 uniquely-recovered
+  details on the same corpus.
+- **The gate cannot splice into a live decode.** The agent event stream is
+  observe-only, so on interrupt the plugin stages recall for the next
+  assembly and requests a `revise` via `before_agent_finalize`. This fires
+  only on the full gateway path (`openclaw gateway run`), requires
+  `hooks.allowConversationAccess: true`, is capped by the host's per-run
+  retry budget, and is a safe no-op everywhere else.
+- **Tool-call arguments are truncated at 2,000 chars** in the durable record
+  (the command matters; a 100KB patch payload shouldn't dominate the store).
+  Tool *results* are ingested in full.
+- **The engine's consolidation hint is deliberately not acted on at ingest.**
+  Measured retrieval is identical with and without it; compact-time
+  consolidation is the sufficient, safe cadence today.
 
-  After compaction, both modes also inject the live working-memory snapshot
-  (it arrives with the same recall call — no extra query), deduplicated
-  against anything the kept tail already carries verbatim. This covers the
-  early-session gap where a just-archived fact is not yet surfaced by
-  query-relevant recall.
+## Verified
 
-  Verified live (gateway + budget-pressure compaction): 16 messages archived
-  with no LLM call, and a fact that existed *only* behind the window was
-  answered correctly from memory injection on the next turn. Reproduce with
-  `npm run test:integration:compaction` — the script seeds a needle the model
-  never repeats, forces budget compaction, asserts from the transcript that
-  the needle is only in the archived prefix, then probes recall.
+Every release passes, against a real `openclaw` gateway and the shipped
+engine, before publish:
 
-  Measured against the alternative (offline replay of a real ~372k-token,
-  ~2,000-message Claude Code transcript; LLM-judged QA on archived-only
-  content; see `bench/replay-judged.mjs`): a real summarizer running
-  OpenClaw's own structured-summary compaction contract compressed 372k
-  tokens into a ~1k-token summary at 16 LLM calls per compaction and scored
-  **1/30** on archived-detail questions (its one hit was also answerable
-  from the kept window alone). Cortext compaction used **0** LLM calls and
-  scored **4/30**; the window-only floor was 0/30, so every genuinely
-  archived detail recovered in any arm came from Cortext memory injection.
-  Recall of fine-grained archived detail is a work in progress — needle
-  probes improved release over release (1/7 → 3/7 → 4/7 across engine
-  1.2.1 → 1.2.3 configurations) — but the alternative is a summary that
-  retains none of it.
-- **The gate cannot splice into a live decode**, but it requests a re-pass.
-  The agent event stream is one-way (observe only). On `should_interrupt` the
-  plugin (a) stages the recalled memory for the next assembly and (b) via
-  `api.on("before_agent_finalize")` returns `{ action: "revise" }` so the harness
-  reconsiders the *current* answer. Requires
-  `plugins.entries.cortext.hooks.allowConversationAccess: true` (OpenClaw blocks
-  the hook otherwise). **Verified against a running gateway** (`openclaw gateway
-  run` + a routed turn, `bench/integration-gateway.mjs`): the automated test
-  asserts the hook fires; a returned `revise` triggering a second model pass was
-  additionally verified in a live manual gateway session (the interrupt that
-  requests a revise is not deterministic per turn). It does **not** fire in the
-  `openclaw agent --local` embedded runner — only the full gateway path. It is a
-  no-op when it doesn't apply; disable with `forceRepass: false`.
-
-## Validated live
-
-Run in a real OpenClaw gateway (`openclaw agent --local`, `gpt-5.4-mini`) — see
-[`bench/integration.mjs`](bench/integration.mjs), a scripted integration test
-against the actual `openclaw` binary:
-
-- The plugin loads and the gate registers with **no error** (an earlier build
-  called a non-existent `api.runtime.events.onAgentEvent` and crashed).
-- **Default session scope isolates conversations**: a fresh session answers "I
-  don't know" for a fact stored in another session; the same session recalls it.
-- **Cross-agent isolation**: agent `bob` cannot see agent `main`'s memory, while
-  `main` itself still recalls the fact (positive control in the same run; the
-  needle is a nonsense token the model cannot guess from priors).
-- **No stale recall** — after correcting a fact, a fresh query returns the new
-  value.
+- **Unit + types** — `npm test` (49 tests, native engine, offline) and
+  `npm run typecheck`. The test api double mirrors the real injected
+  surface, so an unsupported call fails tests.
+- **Isolation live** — [`bench/integration.mjs`](bench/integration.mjs):
+  session scope cannot read another session's fact; agent `bob` cannot read
+  agent `main`'s memory; positive controls recall in-scope; corrected facts
+  are never served stale.
+- **Gateway hooks live** —
+  [`bench/integration-gateway.mjs`](bench/integration-gateway.mjs): the gate
+  subscribes and processes a routed turn without error;
+  `before_agent_finalize` fires.
+- **Compaction live** —
+  [`bench/integration-compaction.mjs`](bench/integration-compaction.mjs):
+  budget pressure forces engine compaction with zero summarizer calls; the
+  transcript proves the needle exists only in the archived prefix; the next
+  turn answers it from memory injection alone.
+- **Judged replay** — [`bench/replay-judged.mjs`](bench/replay-judged.mjs):
+  replays a real transcript through ingest → compact → QA, scoring
+  window+recall against a real summarizer running OpenClaw's own compaction
+  contract and a window-only floor, with an LLM judge.
 
 ```bash
-cd bench && OPENAI_API_KEY=sk-... node integration.mjs   # real gateway, ~6 turns
+npm run test:integration              # isolation, live gateway
+npm run test:integration:gateway      # streaming gate + finalize hook
+npm run test:integration:compaction   # full compaction cycle
 ```
 
-See [bench/](bench/) for cold-start recall and LongMemEval comparison harnesses.
+(The live suites need an `OPENAI_API_KEY` for the gateway's model.)
 
 ## Develop
 
@@ -271,11 +261,9 @@ npm run typecheck
 npm test            # build + unit tests (native engine; fast, offline)
 ```
 
-`npm test` uses a test double that mirrors the **real** injected api surface, so
-an unsupported call fails tests. For end-to-end coverage against the actual
-gateway (the thing a double can't prove), run `bench/integration.mjs`.
-`src/openclaw.d.ts` is transcribed from the **installed** `openclaw` package's
-types.
+`src/openclaw.d.ts` is transcribed from the **installed** `openclaw`
+package's types — if OpenClaw's plugin surface changes, the transcription is
+re-verified against the real package, not docs.
 
 ## License
 
